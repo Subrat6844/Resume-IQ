@@ -1,25 +1,46 @@
 "use client";
-
 import { useEffect, useState } from "react";
-import { Plus, MoreVertical, UploadCloud } from "lucide-react";
+import { Plus, UploadCloud } from "lucide-react";
 import { UserButton, useUser } from "@clerk/nextjs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { useRouter } from "next/navigation"; // ✅ App Router
+import {
+	Dialog,
+	DialogContent,
+	DialogHeader,
+	DialogTitle,
+	DialogTrigger,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import * as pdfjsLib from "pdfjs-dist";
 import Link from "next/link";
 export default function Dashboard() {
+	const router = useRouter();
 	const user = useUser();
 	const [resumes, setResumes] = useState<any[]>([]);
 	const [resumeFile, setResumeFile] = useState<File | null>(null);
 	const [isAnalyzing, setIsAnalyzing] = useState(false);
-
 	const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
 		if (event.target.files && event.target.files.length > 0) {
 			setResumeFile(event.target.files[0]);
 		}
 	};
+	const fetchResume = async () => {
+		try {
+			const response = await fetch("/api/resume", {
+				method: "GET",
+			});
+			const data = await response.json();
+			console.log();
 
+			setResumes(data.data);
+		} catch (error) {
+			console.error("Error fetching data:", error);
+		}
+	};
+	useEffect(() => {
+		fetchResume();
+	}, []);
 	const extractTextFromPDF = async (file: File): Promise<string> => {
 		const arrayBuffer = await file.arrayBuffer();
 		const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
@@ -35,38 +56,37 @@ export default function Dashboard() {
 		return text;
 	};
 	useEffect(() => {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.js`;
-    }, []);
+		pdfjsLib.GlobalWorkerOptions.workerSrc = `/pdf.worker.min.js`;
+	}, []);
+
 	const handleSubmit = async () => {
 		if (!resumeFile) return;
 		setIsAnalyzing(true);
 		try {
 			const extractedText = await extractTextFromPDF(resumeFile);
 			const email = user?.user?.primaryEmailAddress?.emailAddress;
+
 			const response = await fetch("/api/analyze", {
 				method: "POST",
 				headers: {
-				  "Content-Type": "application/json",
+					"Content-Type": "application/json",
 				},
 				body: JSON.stringify({
-				  email,
-				  fileName: resumeFile.name,
-				  extractedText,
+					email,
+					fileName: resumeFile.name,
+					extractedText,
 				}),
-			  });
+			});
 
 			const data = await response.json();
-			console.log(data);
-			
-			const newResume = {
-				id: data.resume._id,
-				name: data.resume.fileName,
-				date: data.resume.createdAt,
-			};
-			console.log(newResume);
-			
-			setResumes([...resumes, newResume]);
-			setResumeFile(null);
+			const resumeId = data?.resume?._id;
+
+			if (response.ok && resumeId) {
+				setResumeFile(null);
+				router.push(`/dashboard/${resumeId}`);
+			} else {
+				console.error("Invalid response from server:", data);
+			}
 		} catch (error) {
 			console.error("Error analyzing resume:", error);
 		} finally {
@@ -98,7 +118,9 @@ export default function Dashboard() {
 							<DialogTitle>Upload a Resume</DialogTitle>
 						</DialogHeader>
 						<div className="space-y-4">
-							<label className="block text-sm font-medium text-gray-700">Select Resume File</label>
+							<label className="block text-sm font-medium text-gray-700">
+								Select Resume File
+							</label>
 							<Input type="file" accept=".pdf" onChange={handleFileChange} />
 							<Button
 								disabled={!resumeFile || isAnalyzing}
@@ -112,12 +134,21 @@ export default function Dashboard() {
 					</DialogContent>
 				</Dialog>
 				<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
-					{resumes.map((resume) => (
-						<Link key={resume.id} href={"/dashboard"+resume.id} className="bg-white p-4 rounded-lg shadow">
+					{resumes?.map((resume) => (
+						<Link
+							key={resume._id}
+							href={`/dashboard/${resume._id}`}
+							className="bg-white p-4 rounded-lg shadow hover:shadow-md transition"
+						>
 							<div className="flex justify-between items-center">
 								<div>
-									<h2 className="text-lg font-semibold text-gray-900">{resume.name}</h2>
-									<p className="text-sm text-gray-500">Analyzed on {resume.date}</p>
+									<h2 className="text-lg font-semibold text-gray-900">
+										{resume.fileName}
+									</h2>
+									<p className="text-sm text-gray-500">
+										Analyzed on{" "}
+										{new Date(resume.uploadDate).toLocaleDateString()}
+									</p>
 								</div>
 							</div>
 						</Link>
